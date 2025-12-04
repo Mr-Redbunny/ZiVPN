@@ -65,8 +65,9 @@ if [ -f /usr/local/bin/zivpn ] || [ -f /etc/systemd/system/zivpn.service ]; then
 fi
 
 # ╔════════════════════════════════════════════════════════════════╗
-print_section "📦 MEMPERBARUI SISTEM"
+print_section "📦 MEMPERBARUI SISTEM & INSTAL GOLANG"
 run_with_spinner "🔄 Memperbarui paket sistem" "sudo apt-get update && sudo apt-get upgrade -y"
+run_with_spinner "🐹 Menginstal Golang" "sudo apt-get install -y golang git"
 
 # ╔════════════════════════════════════════════════════════════════╗
 print_section "🌐 KONFIGURASI DOMAIN"
@@ -104,7 +105,7 @@ sysctl -w net.core.rmem_max=16777216 &>/dev/null
 sysctl -w net.core.wmem_max=16777216 &>/dev/null
 
 # ╔════════════════════════════════════════════════════════════════╗
-print_section "🧩 MEMBUAT LAYANAN SYSTEMD"
+print_section "🧩 MEMBUAT LAYANAN SYSTEMD (VPN)"
 if [ -f /etc/systemd/system/zivpn.service ]; then
     echo -e "${YELLOW}⚠️ Layanan ZIVPN sudah ada. Pembuatan akan dilewati.${RESET}"
 else
@@ -132,9 +133,44 @@ EOF
 fi
 
 # ╔════════════════════════════════════════════════════════════════╗
+print_section "🐹 MENYIAPKAN API GOLANG"
+echo -e "${CYAN}📥 Mengunduh source code API...${RESET}"
+mkdir -p /etc/zivpn/api
+wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/zivpn-api.go -O /etc/zivpn/api/zivpn-api.go
+wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/go.mod -O /etc/zivpn/api/go.mod
+
+echo -e "${CYAN}🔨 Mengompilasi API...${RESET}"
+cd /etc/zivpn/api
+if go build -o zivpn-api zivpn-api.go; then
+    echo -e "${GREEN}✅ API berhasil dikompilasi.${RESET}"
+else
+    echo -e "${RED}❌ Gagal mengompilasi API. Pastikan Golang terinstal dengan benar.${RESET}"
+fi
+
+echo -e "${CYAN}🔧 Membuat layanan systemd untuk API...${RESET}"
+cat <<EOF > /etc/systemd/system/zivpn-api.service
+[Unit]
+Description=ZiVPN Golang API Service
+After=network.target zivpn.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/zivpn/api
+ExecStart=/etc/zivpn/api/zivpn-api
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ╔════════════════════════════════════════════════════════════════╗
 print_section "🚀 MEMULAI DAN MENGAKTIFKAN LAYANAN"
 systemctl enable zivpn.service
 systemctl start zivpn.service
+systemctl enable zivpn-api.service
+systemctl start zivpn-api.service
 
 # ╔════════════════════════════════════════════════════════════════╗
 print_section "🌐 MENGONFIGURASI IPTABLES DAN FIREWALL"
@@ -147,11 +183,12 @@ fi
 
 ufw allow 6000:19999/udp
 ufw allow 5667/udp
+ufw allow 8080/tcp
 
 # ╔════════════════════════════════════════════════════════════════╗
 print_section "✅ SELESAI"
 rm -f install-amd.sh install-amd.tmp install-amd.log &>/dev/null
-echo -e "${GREEN}✅ ZIVPN UDP berhasil diinstal.${RESET}"
+echo -e "${GREEN}✅ ZIVPN UDP & API berhasil diinstal.${RESET}"
 echo -e "${GREEN}🔰 Domain terkonfigurasi: ${YELLOW}$domain${RESET}"
-echo -e "${GREEN}🔰 Pembuatan user dilakukan tanpa UI, langsung menggunakan API Golang.${RESET}"
+echo -e "${GREEN}🐹 API Golang berjalan di port 8080.${RESET}"
 echo -e "${GREEN}📄 Silakan cek dokumentasi Postman di repository AutoFTbot/ZiVPN.${RESET}"

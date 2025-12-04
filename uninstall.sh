@@ -28,17 +28,21 @@ print_section "🧹 MEMULAI UNINSTALL ZiVPN"
 # ╔════════════════════════════════════════════════════════════════════╗
 print_section "🛑 MENGHENTIKAN LAYANAN"
 systemctl stop zivpn.service &>/dev/null
+systemctl stop zivpn-api.service &>/dev/null
 systemctl stop zivpn_backfill.service &>/dev/null
 systemctl disable zivpn.service &>/dev/null
+systemctl disable zivpn-api.service &>/dev/null
 systemctl disable zivpn_backfill.service &>/dev/null
 
 # ╔════════════════════════════════════════════════════════════════════╗
 print_section "🧽 MENGHAPUS BINARY DAN FILE KONFIGURASI"
 rm -f /etc/systemd/system/zivpn.service
+rm -f /etc/systemd/system/zivpn-api.service
 rm -f /etc/systemd/system/zivpn_backfill.service
 rm -rf /etc/zivpn
 rm -f /usr/local/bin/zivpn
 killall zivpn &>/dev/null
+killall zivpn-api &>/dev/null
 
 # ╔════════════════════════════════════════════════════════════════════╗
 print_section "🔥 MENGHAPUS ATURAN IPTABLES"
@@ -62,9 +66,15 @@ systemctl daemon-reload &>/dev/null
 # ╔════════════════════════════════════════════════════════════════════╗
 print_section "📋 MEMERIKSA STATUS AKHIR"
 if pgrep "zivpn" &>/dev/null; then
-  echo -e "${RED}⚠️  Proses masih aktif.${RESET}"
+  echo -e "${RED}⚠️  Proses ZIVPN masih aktif.${RESET}"
 else
-  echo -e "${GREEN}✅ Proses berhasil dihentikan.${RESET}"
+  echo -e "${GREEN}✅ Proses ZIVPN berhasil dihentikan.${RESET}"
+fi
+
+if pgrep "zivpn-api" &>/dev/null; then
+  echo -e "${RED}⚠️  Proses API masih aktif.${RESET}"
+else
+  echo -e "${GREEN}✅ Proses API berhasil dihentikan.${RESET}"
 fi
 
 if [ -e "/usr/local/bin/zivpn" ]; then
@@ -87,4 +97,4 @@ swapoff -a && swapon -a
 
 # ╔════════════════════════════════════════════════════════════════════╗
 print_section "🏁 SELESAI"
-echo -e "${GREEN}✅ UDP ZiVPN dan panelnya telah berhasil di-uninstall.${RESET}"
+echo -e "${GREEN}✅ UDP ZiVPN dan API telah berhasil di-uninstall.${RESET}"
