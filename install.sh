@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# 🚀 ZIVPN UDP AUTO INSTALLER
-# Minimalist & Elegant Edition
-
 # Colors
 GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
