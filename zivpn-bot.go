@@ -28,6 +28,7 @@ type BotConfig struct {
 
 var userStates = make(map[int64]string)
 var tempUserData = make(map[int64]map[string]string)
+var lastMessageIDs = make(map[int64]int)
 
 func main() {
 	if keyBytes, err := ioutil.ReadFile(ApiKeyFile); err == nil {
@@ -63,7 +64,7 @@ func main() {
 func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, adminID int64) {
 	if msg.From.ID != adminID {
 		reply := tgbotapi.NewMessage(msg.Chat.ID, "⛔ Akses Ditolak. Anda bukan admin.")
-		bot.Send(reply)
+		sendAndTrack(bot, reply)
 		return
 	}
 
@@ -79,7 +80,7 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, adminID int64) {
 			showMainMenu(bot, msg.Chat.ID)
 		default:
 			msg := tgbotapi.NewMessage(msg.Chat.ID, "Perintah tidak dikenal.")
-			bot.Send(msg)
+			sendAndTrack(bot, msg)
 		}
 	}
 }
@@ -172,7 +173,7 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 		),
 	)
 	msg.ReplyMarkup = keyboard
-	bot.Send(msg)
+	sendAndTrack(bot, msg)
 }
 
 func sendMessage(bot *tgbotapi.BotAPI, chatID int64, text string) {
@@ -183,12 +184,28 @@ func sendMessage(bot *tgbotapi.BotAPI, chatID int64, text string) {
 		)
 		msg.ReplyMarkup = cancelKb
 	}
-	bot.Send(msg)
+	sendAndTrack(bot, msg)
 }
 
 func resetState(userID int64) {
 	delete(userStates, userID)
 	delete(tempUserData, userID)
+}
+
+func deleteLastMessage(bot *tgbotapi.BotAPI, chatID int64) {
+	if msgID, ok := lastMessageIDs[chatID]; ok {
+		deleteMsg := tgbotapi.NewDeleteMessage(chatID, msgID)
+		bot.Request(deleteMsg)
+		delete(lastMessageIDs, chatID)
+	}
+}
+
+func sendAndTrack(bot *tgbotapi.BotAPI, msg tgbotapi.MessageConfig) {
+	deleteLastMessage(bot, msg.ChatID)
+	sentMsg, err := bot.Send(msg)
+	if err == nil {
+		lastMessageIDs[msg.ChatID] = sentMsg.MessageID
+	}
 }
 
 // --- API Calls ---
@@ -244,7 +261,7 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
-		bot.Send(reply)
+		sendAndTrack(bot, reply)
 		showMainMenu(bot, chatID)
 	} else {
 		sendMessage(bot, chatID, fmt.Sprintf("❌ Gagal: %s", res["message"]))
@@ -289,7 +306,7 @@ func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
-		bot.Send(reply)
+		sendAndTrack(bot, reply)
 		showMainMenu(bot, chatID)
 	} else {
 		sendMessage(bot, chatID, fmt.Sprintf("❌ Gagal: %s", res["message"]))
@@ -323,7 +340,7 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
-		bot.Send(reply)
+		sendAndTrack(bot, reply)
 	} else {
 		sendMessage(bot, chatID, "❌ Gagal mengambil data.")
 	}
@@ -338,12 +355,12 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64) {
 
 	if res["success"] == true {
 		data := res["data"].(map[string]interface{})
-		msg := fmt.Sprintf("📊 *System Info*\n\n🌐 Domain: `%s`\n🖥️ IP Public: `%s`\n🔒 IP Private: `%s`\n🔌 Port: `%s`\n⚙️ Service: `%s`",
+		msg := fmt.Sprintf("📊 *System Info*\n\n🌐 Domain: `%s`\n🖥️ IP Public: `%s`\n🔌 Port: `%s`\n⚙️ Service: `%s`",
 			data["domain"], data["public_ip"], data["private_ip"], data["port"], data["service"])
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
 		reply.ParseMode = "Markdown"
-		bot.Send(reply)
+		sendAndTrack(bot, reply)
 	} else {
 		sendMessage(bot, chatID, "❌ Gagal mengambil info.")
 	}
