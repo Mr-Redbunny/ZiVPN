@@ -31,6 +31,12 @@ type IpInfo struct {
 	Isp  string `json:"isp"`
 }
 
+type UserData struct {
+	Password string `json:"password"`
+	Expired  string `json:"expired"`
+	Status   string `json:"status"`
+}
+
 var userStates = make(map[int64]string)
 var tempUserData = make(map[int64]map[string]string)
 var lastMessageIDs = make(map[int64]int)
@@ -96,26 +102,47 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, adminID
 		return
 	}
 
-	switch query.Data {
-	case "menu_create":
+	switch {
+	case query.Data == "menu_create":
 		userStates[query.From.ID] = "create_username"
 		tempUserData[query.From.ID] = make(map[string]string)
 		sendMessage(bot, query.Message.Chat.ID, "👤 Masukkan Password:")
-	case "menu_delete":
-		userStates[query.From.ID] = "delete_username"
-		sendMessage(bot, query.Message.Chat.ID, "🗑️ Masukkan Password yang akan dihapus:")
-	case "menu_renew":
-		userStates[query.From.ID] = "renew_username"
-		tempUserData[query.From.ID] = make(map[string]string)
-		sendMessage(bot, query.Message.Chat.ID, "🔄 Masukkan Password yang akan diperpanjang:")
-	case "menu_list":
+	case query.Data == "menu_delete":
+		showUserSelection(bot, query.Message.Chat.ID, 1, "delete")
+	case query.Data == "menu_renew":
+		showUserSelection(bot, query.Message.Chat.ID, 1, "renew")
+	case query.Data == "menu_list":
 		listUsers(bot, query.Message.Chat.ID)
-	case "menu_info":
+	case query.Data == "menu_info":
 		systemInfo(bot, query.Message.Chat.ID)
-	case "cancel":
+	case query.Data == "cancel":
 		delete(userStates, query.From.ID)
 		delete(tempUserData, query.From.ID)
 		showMainMenu(bot, query.Message.Chat.ID)
+	case strings.HasPrefix(query.Data, "page_"):
+		parts := strings.Split(query.Data, ":")
+		action := parts[0][5:] // remove "page_"
+		page, _ := strconv.Atoi(parts[1])
+		showUserSelection(bot, query.Message.Chat.ID, page, action)
+	case strings.HasPrefix(query.Data, "select_renew:"):
+		username := strings.TrimPrefix(query.Data, "select_renew:")
+		tempUserData[query.From.ID] = map[string]string{"username": username}
+		userStates[query.From.ID] = "renew_days"
+		sendMessage(bot, query.Message.Chat.ID, fmt.Sprintf("🔄 Renewing %s\n⏳ Masukkan Tambahan Durasi (hari):", username))
+	case strings.HasPrefix(query.Data, "select_delete:"):
+		username := strings.TrimPrefix(query.Data, "select_delete:")
+		msg := tgbotapi.NewMessage(query.Message.Chat.ID, fmt.Sprintf("❓ Yakin ingin menghapus user `%s`?", username))
+		msg.ParseMode = "Markdown"
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Ya, Hapus", "confirm_delete:"+username),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Batal", "cancel"),
+			),
+		)
+		sendAndTrack(bot, msg)
+	case strings.HasPrefix(query.Data, "confirm_delete:"):
+		username := strings.TrimPrefix(query.Data, "confirm_delete:")
+		deleteUser(bot, query.Message.Chat.ID, username)
 	}
 
 	bot.Request(tgbotapi.NewCallback(query.ID, ""))
@@ -140,15 +167,6 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string) {
 		createUser(bot, msg.Chat.ID, tempUserData[userID]["username"], days)
 		resetState(userID)
 
-	case "delete_username":
-		deleteUser(bot, msg.Chat.ID, text)
-		resetState(userID)
-
-	case "renew_username":
-		tempUserData[userID]["username"] = text
-		userStates[userID] = "renew_days"
-		sendMessage(bot, msg.Chat.ID, "⏳ Masukkan Tambahan Durasi (hari):")
-
 	case "renew_days":
 		days, err := strconv.Atoi(text)
 		if err != nil {
@@ -160,8 +178,82 @@ func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string) {
 	}
 }
 
+func showUserSelection(bot *tgbotapi.BotAPI, chatID int64, page int, action string) {
+	users, err := getUsers()
+	if err != nil {
+		sendMessage(bot, chatID, "❌ Gagal mengambil data user.")
+		return
+	}
+
+	if len(users) == 0 {
+		sendMessage(bot, chatID, "📂 Tidak ada user.")
+		return
+	}
+
+	perPage := 10
+	totalPages := (len(users) + perPage - 1) / perPage
+
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	start := (page - 1) * perPage
+	end := start + perPage
+	if end > len(users) {
+		end = len(users)
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, u := range users[start:end] {
+		label := fmt.Sprintf("%s (%s)", u.Password, u.Status)
+		if u.Status == "Expired" {
+			label = fmt.Sprintf("🔴 %s", label)
+		} else {
+			label = fmt.Sprintf("🟢 %s", label)
+		}
+		data := fmt.Sprintf("select_%s:%s", action, u.Password)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(label, data),
+		))
+	}
+
+	var navRow []tgbotapi.InlineKeyboardButton
+	if page > 1 {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ Prev", fmt.Sprintf("page_%s:%d", action, page-1)))
+	}
+	if page < totalPages {
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("Next ➡️", fmt.Sprintf("page_%s:%d", action, page+1)))
+	}
+	if len(navRow) > 0 {
+		rows = append(rows, navRow)
+	}
+	
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("❌ Batal", "cancel")))
+
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("📋 Pilih User untuk %s (Halaman %d/%d):", strings.Title(action), page, totalPages))
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	sendAndTrack(bot, msg)
+}
+
 func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "🚀 *ZiVPN UDP Manager*\nSilakan pilih menu:")
+	ipInfo, _ := getIpInfo()
+	domain := "Unknown"
+	
+	if res, err := apiCall("GET", "/info", nil); err == nil && res["success"] == true {
+		if data, ok := res["data"].(map[string]interface{}); ok {
+			if d, ok := data["domain"].(string); ok {
+				domain = d
+			}
+		}
+	}
+
+	msgText := fmt.Sprintf("```\n————————————————————————————————————\n               ZIVPN UDP\n————————————————————————————————————\nDomain         : %s\nCITY           : %s\nISP            : %s\n————————————————————————————————————\n```\nSilakan pilih menu:",
+		domain, ipInfo.City, ipInfo.Isp)
+
+	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ParseMode = "Markdown"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
@@ -262,6 +354,22 @@ func getIpInfo() (IpInfo, error) {
 	return info, nil
 }
 
+func getUsers() ([]UserData, error) {
+	res, err := apiCall("GET", "/users", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if res["success"] != true {
+		return nil, fmt.Errorf("failed to get users")
+	}
+
+	var users []UserData
+	dataBytes, _ := json.Marshal(res["data"])
+	json.Unmarshal(dataBytes, &users)
+	return users, nil
+}
+
 func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 	res, err := apiCall("POST", "/user/create", map[string]interface{}{
 		"password": username,
@@ -276,7 +384,7 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 	if res["success"] == true {
 		data := res["data"].(map[string]interface{})
 		
-		ipInfo, _ := getIpInfo() // Ignore error, just show empty if fails
+		ipInfo, _ := getIpInfo() // Abaikan kesalahan, cukup tampilkan kosong jika gagal
 		
 		msg := fmt.Sprintf("```\n————————————————————————————————————\n               ZIVPN UDP\n————————————————————————————————————\nPassword       : %s\nCITY           : %s\nISP            : %s\nDomain         : %s\nExpired On     : %s\n————————————————————————————————————\n```",
 			data["password"], ipInfo.City, ipInfo.Isp, data["domain"], data["expired"])
@@ -327,7 +435,7 @@ func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 	if res["success"] == true {
 		data := res["data"].(map[string]interface{})
 		
-		ipInfo, _ := getIpInfo() // Ignore error, just show empty if fails
+		ipInfo, _ := getIpInfo() // Abaikan kesalahan, cukup tampilkan kosong jika gagal
 
 		msg := fmt.Sprintf("```\n————————————————————————————————————\n               ZIVPN UDP\n————————————————————————————————————\nPassword       : %s\nCITY           : %s\nISP            : %s\nDomain         : %s\nExpired On     : %s\n————————————————————————————————————\n```",
 			data["password"], ipInfo.City, ipInfo.Isp, data["domain"], data["expired"])
