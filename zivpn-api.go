@@ -15,7 +15,7 @@ import (
 
 const (
 	ConfigFile = "/etc/zivpn/config.json"
-	UserDB     = "/etc/zivpn/users.db"
+	UserDB     = "/etc/zivpn/users.json"
 	DomainFile = "/etc/zivpn/domain"
 	ApiKeyFile = "/etc/zivpn/apikey"
 	Port       = ":8080"
@@ -37,6 +37,14 @@ type Config struct {
 type UserRequest struct {
 	Password string `json:"password"`
 	Days     int    `json:"days"`
+	IpLimit  int    `json:"ip_limit"`
+}
+
+type UserStore struct {
+	Password string `json:"password"`
+	Expired  string `json:"expired"`
+	IpLimit  int    `json:"ip_limit"`
+	Status   string `json:"status"`
 }
 
 type Response struct {
@@ -57,6 +65,8 @@ func main() {
 	http.HandleFunc("/api/user/renew", authMiddleware(renewUser))
 	http.HandleFunc("/api/users", authMiddleware(listUsers))
 	http.HandleFunc("/api/info", authMiddleware(getSystemInfo))
+
+	go monitorUserLimits()
 
 	fmt.Printf("ZiVPN API berjalan di port %s\n", Port)
 	log.Fatal(http.ListenAndServe(Port, nil))
@@ -123,16 +133,27 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expDate := time.Now().Add(time.Duration(req.Days) * 24 * time.Hour).Format("2006-01-02")
-	entry := fmt.Sprintf("%s | %s\n", req.Password, expDate)
-	
-	f, err := os.OpenFile(UserDB, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	limit := req.IpLimit
+	if limit <= 0 {
+		limit = 0 // unlimited
+	}
+
+	users, err := loadUsers()
 	if err != nil {
-		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membuka database user", nil)
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal membaca database user", nil)
 		return
 	}
-	defer f.Close()
-	if _, err := f.WriteString(entry); err != nil {
-		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menulis database user", nil)
+
+	newUser := UserStore{
+		Password: req.Password,
+		Expired:  expDate,
+		IpLimit:  limit,
+		Status:   "active",
+	}
+	users = append(users, newUser)
+
+	if err := saveUsers(users); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, false, "Gagal menyimpan database user", nil)
 		return
 	}
 
@@ -149,6 +170,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, true, "User berhasil dibuat", map[string]string{
 		"password": req.Password,
 		"expired":  expDate,
+		"ip_limit": fmt.Sprintf("%d", limit),
 		"domain":   domain,
 	})
 }
@@ -201,13 +223,12 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newUsers := []string{}
-	for _, line := range users {
-		parts := strings.Split(line, "|")
-		if len(parts) > 0 && strings.TrimSpace(parts[0]) == req.Password {
+	newUsers := []UserStore{}
+	for _, u := range users {
+		if u.Password == req.Password {
 			continue
 		}
-		newUsers = append(newUsers, line)
+		newUsers = append(newUsers, u)
 	}
 
 	if err := saveUsers(newUsers); err != nil {
@@ -245,30 +266,34 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	found := false
-	newUsers := []string{}
+	newUsers := []UserStore{}
 	var newExpDate string
 
-	for _, line := range users {
-		parts := strings.Split(line, "|")
-		if len(parts) >= 2 && strings.TrimSpace(parts[0]) == req.Password {
+	for _, u := range users {
+		if u.Password == req.Password {
 			found = true
-			currentExpStr := strings.TrimSpace(parts[1])
-			currentExp, err := time.Parse("2006-01-02", currentExpStr)
+			currentExp, err := time.Parse("2006-01-02", u.Expired)
 			if err != nil {
-				// Jika format tanggal salah, anggap hari ini
 				currentExp = time.Now()
 			}
 			
-			// Jika sudah expired, mulai dari hari ini. Jika belum, tambah dari tanggal expired.
 			if currentExp.Before(time.Now()) {
 				currentExp = time.Now()
 			}
 
 			newExp := currentExp.Add(time.Duration(req.Days) * 24 * time.Hour)
 			newExpDate = newExp.Format("2006-01-02")
-			newUsers = append(newUsers, fmt.Sprintf("%s | %s", req.Password, newExpDate))
+			
+			u.Expired = newExpDate
+			
+			if u.Status == "locked" {
+				u.Status = "active"
+				go enableUser(req.Password)
+			}
+
+			newUsers = append(newUsers, u)
 		} else {
-			newUsers = append(newUsers, line)
+			newUsers = append(newUsers, u)
 		}
 	}
 
@@ -282,7 +307,6 @@ func renewUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restart service mungkin tidak diperlukan untuk renew, tapi bagus untuk memastikan konsistensi
 	if err := restartService(); err != nil {
 		jsonResponse(w, http.StatusInternalServerError, false, "Gagal merestart service", nil)
 		return
@@ -310,26 +334,26 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Expired  string `json:"expired"`
 		Status   string `json:"status"`
+		IpLimit  int    `json:"ip_limit"`
 	}
 
 	userList := []UserInfo{}
 	today := time.Now().Format("2006-01-02")
 
-	for _, line := range users {
-		parts := strings.Split(line, "|")
-		if len(parts) >= 2 {
-			pass := strings.TrimSpace(parts[0])
-			exp := strings.TrimSpace(parts[1])
-			status := "Active"
-			if exp < today {
-				status = "Expired"
-			}
-			userList = append(userList, UserInfo{
-				Password: pass,
-				Expired:  exp,
-				Status:   status,
-			})
+	for _, u := range users {
+		status := "Active"
+		if u.Status == "locked" {
+			status = "Locked"
+		} else if u.Expired < today {
+			status = "Expired"
 		}
+		
+		userList = append(userList, UserInfo{
+			Password: u.Password,
+			Expired:  u.Expired,
+			Status:   status,
+			IpLimit:  u.IpLimit,
+		})
 	}
 
 	jsonResponse(w, http.StatusOK, true, "Daftar user", userList)
@@ -358,6 +382,132 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, true, "System Info", info)
 }
 
+func monitorUserLimits() {
+	for {
+		time.Sleep(1 * time.Minute)
+
+		users, err := loadUsers()
+		if err != nil {
+			log.Println("Error loading users for monitor:", err)
+			continue
+		}
+
+		userLimits := make(map[string]int)
+		for _, u := range users {
+			if u.IpLimit > 0 {
+				userLimits[u.Password] = u.IpLimit
+			}
+		}
+
+		if len(userLimits) == 0 {
+			continue
+		}
+		cmd := exec.Command("journalctl", "-u", "zivpn.service", "--since", "1 minute ago", "--no-pager")
+		out, err := cmd.Output()
+		if err != nil {
+			log.Println("Error reading logs:", err)
+			continue
+		}
+		logContent := string(out)
+		
+		activeIps := make(map[string]map[string]bool)
+
+		lines := strings.Split(logContent, "\n")
+		for _, l := range lines {
+			if strings.Contains(l, "user:") && strings.Contains(l, "source:") {
+				fields := strings.Fields(l)
+				var username, ip string
+				for i, f := range fields {
+					if strings.Contains(f, "user:") && i+1 < len(fields) {
+						username = strings.Trim(fields[i+1], ",")
+					}
+					if strings.Contains(f, "source:") && i+1 < len(fields) {
+						ip = strings.Trim(fields[i+1], ",")
+					}
+				}
+				
+				if username != "" && ip != "" {
+					if _, exists := userLimits[username]; exists {
+						if activeIps[username] == nil {
+							activeIps[username] = make(map[string]bool)
+						}
+						activeIps[username][ip] = true
+					}
+				}
+			}
+		}
+
+		// Check limits
+		for user, ips := range activeIps {
+			limit := userLimits[user]
+			if len(ips) > limit {
+				log.Printf("User %s exceeded IP limit (Active: %d, Limit: %d). Locking account.\n", user, len(ips), limit)
+				lockUser(user)
+			}
+		}
+	}
+}
+
+func lockUser(username string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	config, err := loadConfig()
+	if err == nil {
+		newConfigAuth := []string{}
+		changed := false
+		for _, p := range config.Auth.Config {
+			if p == username {
+				changed = true
+			} else {
+				newConfigAuth = append(newConfigAuth, p)
+			}
+		}
+		if changed {
+			config.Auth.Config = newConfigAuth
+			saveConfig(config)
+			restartService()
+		}
+	}
+
+	users, err := loadUsers()
+	if err == nil {
+		newUsers := []UserStore{}
+		for _, u := range users {
+			if u.Password == username {
+				u.Status = "locked"
+			}
+			newUsers = append(newUsers, u)
+		}
+		saveUsers(newUsers)
+	}
+}
+
+func enableUser(username string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	config, err := loadConfig()
+	if err != nil {
+		return
+	}
+
+	exists := false
+	for _, p := range config.Auth.Config {
+		if p == username {
+			exists = true
+			break
+		}
+	}
+
+	if !exists {
+		config.Auth.Config = append(config.Auth.Config, username)
+		saveConfig(config)
+		restartService()
+	}
+}
+
+
 // --- Helper Functions ---
 
 func loadConfig() (Config, error) {
@@ -378,27 +528,25 @@ func saveConfig(config Config) error {
 	return ioutil.WriteFile(ConfigFile, data, 0644)
 }
 
-func loadUsers() ([]string, error) {
+func loadUsers() ([]UserStore, error) {
+	var users []UserStore
 	file, err := ioutil.ReadFile(UserDB)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []string{}, nil
+			return users, nil
 		}
 		return nil, err
 	}
-	lines := strings.Split(string(file), "\n")
-	var result []string
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			result = append(result, line)
-		}
-	}
-	return result, nil
+	err = json.Unmarshal(file, &users)
+	return users, err
 }
 
-func saveUsers(lines []string) error {
-	data := strings.Join(lines, "\n") + "\n"
-	return ioutil.WriteFile(UserDB, []byte(data), 0644)
+func saveUsers(users []UserStore) error {
+	data, err := json.MarshalIndent(users, "", "  ")
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(UserDB, data, 0644)
 }
 
 func restartService() error {
