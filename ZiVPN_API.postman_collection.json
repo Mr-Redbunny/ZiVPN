@@ -1,8 +1,8 @@
 {
     "info": {
-        "_postman_id": "b5a3c1d2-e4f5-4a6b-8c7d-9e0f1a2b3c4d",
-        "name": "ZiVPN UDP API",
-        "description": "Collection untuk mengelola user ZiVPN UDP Tunnel via API Golang.",
+        "_postman_id": "zivpn-collection",
+        "name": "ZiVPN API",
+        "description": "API Collection for ZiVPN UDP Tunnel Management",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
@@ -13,7 +13,7 @@
                 "header": [
                     {
                         "key": "X-API-Key",
-                        "value": "ASdfaASFaSrofasufasf34qwdas4q2rq++ASdasfawerwDF#Q",
+                        "value": "{{api_key}}",
                         "type": "text"
                     }
                 ],
@@ -37,7 +37,7 @@
                 "header": [
                     {
                         "key": "X-API-Key",
-                        "value": "zivpn-secret-token",
+                        "value": "{{api_key}}",
                         "type": "text"
                     }
                 ],
@@ -61,7 +61,7 @@
                 "header": [
                     {
                         "key": "X-API-Key",
-                        "value": "zivpn-secret-token",
+                        "value": "{{api_key}}",
                         "type": "text"
                     },
                     {
@@ -72,7 +72,7 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"password\": \"user_baru\",\n    \"days\": 30\n}"
+                    "raw": "{\n    \"password\": \"user123\",\n    \"days\": 30,\n    \"ip_limit\": 2\n}"
                 },
                 "url": {
                     "raw": "{{base_url}}/api/user/create",
@@ -95,7 +95,7 @@
                 "header": [
                     {
                         "key": "X-API-Key",
-                        "value": "zivpn-secret-token",
+                        "value": "{{api_key}}",
                         "type": "text"
                     },
                     {
@@ -106,7 +106,7 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"password\": \"user_baru\",\n    \"days\": 30\n}"
+                    "raw": "{\n    \"password\": \"user123\",\n    \"days\": 30\n}"
                 },
                 "url": {
                     "raw": "{{base_url}}/api/user/renew",
@@ -129,7 +129,7 @@
                 "header": [
                     {
                         "key": "X-API-Key",
-                        "value": "zivpn-secret-token",
+                        "value": "{{api_key}}",
                         "type": "text"
                     },
                     {
@@ -140,7 +140,7 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"password\": \"user_baru\"\n}"
+                    "raw": "{\n    \"password\": \"user123\"\n}"
                 },
                 "url": {
                     "raw": "{{base_url}}/api/user/delete",
@@ -160,8 +160,11 @@
     "variable": [
         {
             "key": "base_url",
-            "value": "http://YOUR_VPS_IP:8080",
-            "type": "string"
+            "value": "http://your-vps-ip:8080"
+        },
+        {
+            "key": "api_key",
+            "value": "your-api-key"
         }
     ]
 }
