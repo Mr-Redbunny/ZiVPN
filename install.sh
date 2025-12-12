@@ -46,7 +46,10 @@ if [[ "$(uname -s)" != "Linux" ]] || [[ "$(uname -m)" != "x86_64" ]]; then
 fi
 
 if [ -f /usr/local/bin/zivpn ]; then
-  print_fail "ZiVPN already installed"
+  echo -e "${YELLOW}! ZiVPN detected. Reinstalling...${RESET}"
+  systemctl stop zivpn.service &>/dev/null
+  systemctl stop zivpn-api.service &>/dev/null
+  systemctl stop zivpn-bot.service &>/dev/null
 fi
 
 run_silent "Updating system" "sudo apt-get update"
@@ -89,8 +92,22 @@ run_silent "Configuring" "wget -q https://raw.githubusercontent.com/AutoFTbot/Zi
 
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
 
-sysctl -w net.core.rmem_max=16777216 &>/dev/null
-sysctl -w net.core.wmem_max=16777216 &>/dev/null
+cat >> /etc/sysctl.conf <<END
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.ipv4.ip_forward=1
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=16777216
+net.core.wmem_default=16777216
+net.core.optmem_max=65536
+net.core.somaxconn=65535
+net.ipv4.tcp_rmem=4096 87380 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.tcp_fastopen=3
+fs.file-max=1000000
+END
+sysctl -p &>/dev/null
 
 cat <<EOF > /etc/systemd/system/zivpn.service
 [Unit]
@@ -104,6 +121,7 @@ WorkingDirectory=/etc/zivpn
 ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json
 Restart=always
 RestartSec=3
+LimitNOFILE=65535
 Environment=ZIVPN_LOG_LEVEL=info
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
@@ -113,7 +131,6 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-# 11. API Setup
 mkdir -p /etc/zivpn/api
 run_silent "Setting up API" "wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/zivpn-api.go -O /etc/zivpn/api/zivpn-api.go && wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/go.mod -O /etc/zivpn/api/go.mod"
 
@@ -194,7 +211,7 @@ ufw allow 6000:19999/udp &>/dev/null
 ufw allow 5667/udp &>/dev/null
 ufw allow 8080/tcp &>/dev/null
 
-rm -f install.sh install.tmp install.log &>/dev/null
+rm -f "$0" install.tmp install.log &>/dev/null
 
 echo ""
 echo -e "${BOLD}Installation Complete${RESET}"
