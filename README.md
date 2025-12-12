@@ -97,8 +97,13 @@ Membuat user baru.
 *   **Method**: `POST`
 *   **Body**:
     ```json
-    { "password": "user123", "days": 30 }
+    {
+        "password": "user123",
+        "days": 30,
+        "ip_limit": 2
+    }
     ```
+    *(Note: `ip_limit` 0 = Unlimited)*
 *   **Response**:
     ```json
     {
@@ -107,6 +112,7 @@ Membuat user baru.
         "data": {
             "password": "user123",
             "expired": "2024-12-31",
+            "ip_limit": "2",
             "domain": "vpn.domain.com"
         }
     }
@@ -134,6 +140,17 @@ Memperpanjang durasi user.
 Melihat semua user.
 *   **Endpoint**: `/api/users`
 *   **Method**: `GET`
+*   **Response Data Example**:
+    ```json
+    [
+        {
+            "password": "user123",
+            "expired": "2024-12-31",
+            "status": "Active",
+            "ip_limit": 2
+        }
+    ]
+    ```
 
 ### 5. System Info
 Melihat informasi server.
@@ -142,7 +159,13 @@ Melihat informasi server.
 
 ---
 
-## 🛠️ Pemecahan Masalah (Troubleshooting)
+## � Postman Collection
+Anda dapat mengimpor koleksi API lengkap ke Postman menggunakan file JSON berikut:
+[Download zivpn_postman_collection.json](zivpn_postman_collection.json)
+
+---
+
+## �🛠️ Pemecahan Masalah (Troubleshooting)
 
 ### 1. Log "TCP error" di Jurnal
 Jika Anda melihat log seperti:
