@@ -68,14 +68,14 @@ func main() {
 
 	for update := range updates {
 		if update.Message != nil {
-			handleMessage(bot, update.Message, config)
+			handleMessage(bot, update.Message, &config)
 		} else if update.CallbackQuery != nil {
-			handleCallback(bot, update.CallbackQuery, config)
+			handleCallback(bot, update.CallbackQuery, &config)
 		}
 	}
 }
 
-func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config BotConfig) {
+func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfig) {
 	// Access Control
 	if config.Mode != "public" && msg.From.ID != config.AdminID {
 		reply := tgbotapi.NewMessage(msg.Chat.ID, "⛔ Akses Ditolak. Bot ini Private.")
@@ -100,11 +100,14 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config BotConfig
 	}
 }
 
-func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config BotConfig) {
+func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config *BotConfig) {
 	// Access Control
 	if config.Mode != "public" && query.From.ID != config.AdminID {
-		bot.Request(tgbotapi.NewCallback(query.ID, "Akses Ditolak"))
-		return
+		// Exception: Admin trying to toggle mode from private
+		if query.Data != "toggle_mode" || query.From.ID != config.AdminID {
+			bot.Request(tgbotapi.NewCallback(query.ID, "Akses Ditolak"))
+			return
+		}
 	}
 
 	switch {
@@ -148,12 +151,24 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 	case strings.HasPrefix(query.Data, "confirm_delete:"):
 		username := strings.TrimPrefix(query.Data, "confirm_delete:")
 		deleteUser(bot, query.Message.Chat.ID, username, config)
+	case query.Data == "toggle_mode":
+		if query.From.ID != config.AdminID {
+			bot.Request(tgbotapi.NewCallback(query.ID, "Hanya Admin"))
+			return
+		}
+		if config.Mode == "public" {
+			config.Mode = "private"
+		} else {
+			config.Mode = "public"
+		}
+		saveConfig(config)
+		showMainMenu(bot, query.Message.Chat.ID, config)
 	}
 
 	bot.Request(tgbotapi.NewCallback(query.ID, ""))
 }
 
-func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, config BotConfig) {
+func handleState(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, state string, config *BotConfig) {
 	userID := msg.From.ID
 	text := strings.TrimSpace(msg.Text)
 
@@ -242,7 +257,7 @@ func showUserSelection(bot *tgbotapi.BotAPI, chatID int64, page int, action stri
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	sendAndTrack(bot, msg)
 }
-func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config BotConfig) {
+func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	ipInfo, _ := getIpInfo()
 		// Gunakan domain dari config
 	domain := config.Domain
@@ -255,6 +270,11 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config BotConfig) {
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ParseMode = "Markdown"
 
+	modeLabel := "🔐 Mode: Private"
+	if config.Mode == "public" {
+		modeLabel = "🌍 Mode: Public"
+	}
+
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("👤 Create Password", "menu_create"),
@@ -266,6 +286,9 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config BotConfig) {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(modeLabel, "toggle_mode"),
 		),
 	)
 	msg.ReplyMarkup = keyboard
@@ -369,7 +392,7 @@ func getUsers() ([]UserData, error) {
 	return users, nil
 }
 
-func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, config BotConfig) {
+func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, config *BotConfig) {
 	res, err := apiCall("POST", "/user/create", map[string]interface{}{
 		"password": username,
 		"days":     days,
@@ -403,7 +426,7 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, c
 	}
 }
 
-func deleteUser(bot *tgbotapi.BotAPI, chatID int64, username string, config BotConfig) {
+func deleteUser(bot *tgbotapi.BotAPI, chatID int64, username string, config *BotConfig) {
 	res, err := apiCall("POST", "/user/delete", map[string]interface{}{
 		"password": username,
 	})
@@ -424,7 +447,7 @@ func deleteUser(bot *tgbotapi.BotAPI, chatID int64, username string, config BotC
 	}
 }
 
-func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, config BotConfig) {
+func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int, config *BotConfig) {
 	res, err := apiCall("POST", "/user/renew", map[string]interface{}{
 		"password": username,
 		"days":     days,
@@ -496,7 +519,7 @@ func listUsers(bot *tgbotapi.BotAPI, chatID int64) {
 	}
 }
 
-func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config BotConfig) {
+func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	res, err := apiCall("GET", "/info", nil)
 	if err != nil {
 		sendMessage(bot, chatID, "❌ Error API: "+err.Error())
@@ -508,7 +531,7 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config BotConfig) {
 		
 		ipInfo, _ := getIpInfo()
 
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n           INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nPort           : %s\nService        : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n    INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nPort           : %s\nService        : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 			config.Domain, data["public_ip"], data["port"], data["service"], ipInfo.City, ipInfo.Isp)
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
@@ -519,6 +542,14 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config BotConfig) {
 	} else {
 		sendMessage(bot, chatID, "❌ Gagal mengambil info.")
 	}
+}
+
+func saveConfig(config *BotConfig) error {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(BotConfigFile, data, 0644)
 }
 
 func loadConfig() (BotConfig, error) {
