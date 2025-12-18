@@ -29,9 +29,10 @@ const (
 	ApiPortFile   = "/etc/zivpn/api_port"
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
+	PortFile	  = "/etc/zivpn/port"
 )
 
-var ApiUrl = "http://127.0.0.1:8080/api"
+var ApiUrl = "http://127.0.0.1:" + PortFile + "/api"
 
 var ApiKey = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
 
@@ -448,9 +449,7 @@ func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
 	files := []string{
 		"/etc/zivpn/config.json",
 		"/etc/zivpn/users.json",
-		"/etc/zivpn/bot-config.json",
 		"/etc/zivpn/domain",
-		"/etc/zivpn/apikey",
 	}
 
 	buf := new(bytes.Buffer)
@@ -570,12 +569,16 @@ func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *Bot
 	// Restart Services
 	exec.Command("systemctl", "restart", "zivpn").Run()
 	exec.Command("systemctl", "restart", "zivpn-api").Run()
-	// Note: We don't restart zivpn-bot here because it would kill this process. 
-	// The user can restart it manually if bot config changed, or we can exit.
-	// For now, let's just notify.
-
-	msgSuccess := tgbotapi.NewMessage(chatID, "✅ Restore Berhasil!\nService ZiVPN telah direstart.\n\nJika Anda mengubah config bot, silakan restart bot manual atau tunggu service restart otomatis.")
+	
+	msgSuccess := tgbotapi.NewMessage(chatID, "✅ Restore Berhasil!\nService ZiVPN, API, dan Bot telah direstart.")
 	bot.Send(msgSuccess)
+	
+	// Restart Bot with delay to allow message sending
+	go func() {
+		time.Sleep(2 * time.Second)
+		exec.Command("systemctl", "restart", "zivpn-bot").Run()
+	}()
+
 	showMainMenu(bot, chatID, config)
 }
 
@@ -631,21 +634,15 @@ func getMainMenuKeyboard(config *BotConfig, userID int64) tgbotapi.InlineKeyboar
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interface{}, limit int, config *BotConfig) {
+func sendAccountInfo(bot *tgbotapi.BotAPI, chatID int64, data map[string]interface{}, config *BotConfig) {
 	ipInfo, _ := getIpInfo()
 	domain := config.Domain
 	if domain == "" {
 		domain = "(Not Configured)"
 	}
 
-	limitStr := ""
-	if limit > 0 {
-		limitStr = fmt.Sprintf("\nLimit IP   : %d Device", limit)
-	}
-
-	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s%s\nCITY       : %s\nISP        : %s\nDomain     : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+	msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
 		data["password"],
-		limitStr,
 		ipInfo.City,
 		ipInfo.Isp,
 		domain,
