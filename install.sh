@@ -116,6 +116,10 @@ net.ipv4.tcp_rmem=4096 87380 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
 net.ipv4.tcp_fastopen=3
 fs.file-max=1000000
+net.core.netdev_max_backlog=16384
+net.ipv4.udp_mem=65536 131072 262144
+net.ipv4.udp_rmem_min=8192
+net.ipv4.udp_wmem_min=8192
 END
 sysctl -p &>/dev/null
 
