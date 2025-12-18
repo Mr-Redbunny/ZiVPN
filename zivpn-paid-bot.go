@@ -44,7 +44,6 @@ type BotConfig struct {
 	PakasirSlug    string `json:"pakasir_slug"`
 	PakasirApiKey  string `json:"pakasir_api_key"`
 	DailyPrice     int    `json:"daily_price"`
-	DefaultIpLimit int    `json:"default_ip_limit"`
 }
 
 type IpInfo struct {
@@ -56,7 +55,6 @@ type UserData struct {
 	Password string `json:"password"`
 	Expired  string `json:"expired"`
 	Status   string `json:"status"`
-	IpLimit  int    `json:"ip_limit"`
 }
 
 // ==========================================
