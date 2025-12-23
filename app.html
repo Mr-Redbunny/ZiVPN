@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZiVPN Manager</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --background-color: #f8f9fa;
+            --text-color: #333;
+            --card-bg: #fff;
+            --shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: var(--primary-color);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        input[type="text"], input[type="password"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-sizing: border-box;
+        }
+        .btn {
+            display: inline-block;
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--primary-color);
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .btn-secondary {
+            background-color: var(--secondary-color);
+        }
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 14px;
+            width: auto;
+            margin-right: 5px;
+        }
+        #manager-view {
+            display: none;
+        }
+        #user-list table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        #user-list th, #user-list td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+        #user-list th {
+            background-color: #f2f2f2;
+        }
+        .actions {
+            display: flex;
+            justify-content: flex-start;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s, transform 0.5s;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translate(-50%, -10px);
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 12px;
+        }
+        .close-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Login View -->
+    <div id="login-view" class="card">
+        <h1>ZiVPN Manager</h1>
+        <div class="form-group">
+            <label for="server-ip">Server IP</label>
+            <input type="text" id="server-ip" placeholder="e.g., 123.45.67.89">
+        </div>
+        <div class="form-group">
+            <label for="api-key">API Key</label>
+            <input type="password" id="api-key" placeholder="Enter your API Key">
+        </div>
+        <button id="connect-btn" class="btn">Connect</button>
+    </div>
+
+    <!-- Manager View -->
+    <div id="manager-view">
+        <div class="card">
+            <h2>Server Info</h2>
+            <div id="server-info"></div>
+            <button id="logout-btn" class="btn btn-secondary" style="margin-top: 15px;">Disconnect</button>
+        </div>
+
+        <div class="card">
+            <h2>User Management</h2>
+            <button id="show-add-user-modal-btn" class="btn">Add New User</button>
+            <div id="user-list"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Renew User Modal -->
+<div id="user-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn">&times;</span>
+        <h2 id="modal-title">Add New User</h2>
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" placeholder="Enter username">
+        </div>
+        <div class="form-group">
+            <label for="days">Days</label>
+            <input type="number" id="days" placeholder="e.g., 30">
+        </div>
+        <button id="save-user-btn" class="btn">Save</button>
+    </div>
+</div>
+
+<div id="toast-notification" class="toast"></div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const loginView = document.getElementById('login-view');
+        const managerView = document.getElementById('manager-view');
+        const connectBtn = document.getElementById('connect-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const serverIpInput = document.getElementById('server-ip');
+        const apiKeyInput = document.getElementById('api-key');
+        const serverInfoDiv = document.getElementById('server-info');
+        const userListDiv = document.getElementById('user-list');
+        const toast = document.getElementById('toast-notification');
+
+        const API_PORT = 8080;
+
+        // --- Core API Call Function ---
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const serverIp = localStorage.getItem('serverIp');
+            const apiKey = localStorage.getItem('apiKey');
+
+            if (!serverIp || !apiKey) {
+                showToast('Server IP or API Key not set.');
+                return null;
+            }
+
+            const url = `http://${serverIp}:${API_PORT}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey
+            };
+
+            try {
+                const options = { method, headers };
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                const response = await fetch(url, options);
+
+                if (response.status === 401) {
+                    showToast('Unauthorized. Check your API Key.');
+                    logout();
+                    return null;
+                }
+                if (!response.ok) {
+                    showToast(`Error: ${response.statusText}`);
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                showToast('Connection failed. Check server IP and network.');
+                return null;
+            }
+        }
+
+        // --- UI Functions ---
+        function showToast(message, duration = 3000) {
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+
+        function setButtonLoading(button, isLoading, text) {
+            button.disabled = isLoading;
+            button.textContent = text;
+        }
+
+        function showManagerView() {
+            loginView.style.display = 'none';
+            managerView.style.display = 'block';
+            loadInitialData();
+        }
+
+        function showLoginView() {
+            loginView.style.display = 'block';
+            managerView.style.display = 'none';
+        }
+
+        async function loadInitialData() {
+            const infoPromise = apiCall('/api/info');
+            const usersPromise = apiCall('/api/users');
+
+            const [info, users] = await Promise.all([infoPromise, usersPromise]);
+
+            if (info && info.success) {
+                renderServerInfo(info.data);
+            }
+            if (users && users.success) {
+                renderUserList(users.data);
+            }
+        }
+
+        function renderServerInfo(data) {
+            serverInfoDiv.innerHTML = `
+                <p><strong>Domain:</strong> ${data.domain}</p>
+                <p><strong>Public IP:</strong> ${data.public_ip}</p>
+                <p><strong>UDP Port:</strong> ${data.port}</p>
+            `;
+        }
+
+        function renderUserList(users) {
+            if (!users || users.length === 0) {
+                userListDiv.innerHTML = '<p>No users found.</p>';
+                return;
+            }
+
+            const table = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Expired</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${users.map(user => `
+                            <tr>
+                                <td>${user.password}</td>
+                                <td>${user.expired}</td>
+                                <td>${user.status}</td>
+                                <td class="actions">
+                                    <button class="btn btn-sm" onclick="showRenewModal('${user.password}')">Renew</button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteUserAction('${user.password}')">Delete</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="copyUserAction('${user.password}', '${user.expired}')">Copy</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            userListDiv.innerHTML = table;
+        }
+
+        // --- Modal Handling ---
+        const userModal = document.getElementById('user-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const usernameInput = document.getElementById('username');
+        const daysInput = document.getElementById('days');
+        const saveUserBtn = document.getElementById('save-user-btn');
+        const closeModalBtn = document.querySelector('.close-btn');
+
+        let isRenew = false;
+
+        function showAddUserModal() {
+            isRenew = false;
+            modalTitle.textContent = 'Add New User';
+            usernameInput.value = '';
+            usernameInput.disabled = false;
+            daysInput.value = '30';
+            userModal.style.display = 'flex';
+        }
+
+        window.showRenewModal = function(username) {
+            isRenew = true;
+            modalTitle.textContent = `Renew User: ${username}`;
+            usernameInput.value = username;
+            usernameInput.disabled = true;
+            daysInput.value = '30';
+            userModal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            userModal.style.display = 'none';
+        }
+
+        closeModalBtn.onclick = closeModal;
+        window.onclick = function(event) {
+            if (event.target == userModal) {
+                closeModal();
+            }
+        }
+
+        document.getElementById('show-add-user-modal-btn').addEventListener('click', showAddUserModal);
+
+        saveUserBtn.addEventListener('click', async () => {
+            const password = usernameInput.value.trim();
+            const days = parseInt(daysInput.value.trim(), 10);
+
+            if (!password || !days || days <= 0) {
+                showToast('Please enter a valid username and number of days.');
+                return;
+            }
+
+            setButtonLoading(saveUserBtn, true, 'Saving...');
+
+            const endpoint = isRenew ? '/api/user/renew' : '/api/user/create';
+            const body = { password, days };
+            const result = await apiCall(endpoint, 'POST', body);
+
+            setButtonLoading(saveUserBtn, false, 'Save');
+
+            if (result && result.success) {
+                showToast(result.message);
+                loadInitialData();
+                closeModal();
+            } else {
+                showToast(result ? result.message : 'An error occurred.');
+            }
+        });
+
+        // --- User Actions ---
+        window.deleteUserAction = async function(username) {
+            if (confirm(`Are you sure you want to delete user: ${username}?`)) {
+                const result = await apiCall('/api/user/delete', 'POST', { password: username });
+                if (result && result.success) {
+                    showToast('User deleted successfully.');
+                    loadInitialData();
+                } else {
+                    showToast(result ? result.message : 'Failed to delete user.');
+                }
+            }
+        }
+
+        window.copyUserAction = async function(username, expired) {
+            const serverInfo = await apiCall('/api/info');
+            if(serverInfo && serverInfo.success) {
+                const data = serverInfo.data;
+                const infoString = `ZiVPN Account Info\n` +
+                                 `-------------------\n` +
+                                 `Server: ${data.domain || data.public_ip}\n` +
+                                 `Port: ${data.port}\n` +
+                                 `Password: ${username}\n` +
+                                 `Expired: ${expired}\n` +
+                                 `-------------------`;
+                try {
+                    await navigator.clipboard.writeText(infoString);
+                    showToast('Account info copied to clipboard!');
+                } catch (err) {
+                    showToast('Failed to copy info.');
+                }
+            }
+        }
+
+        // --- Event Handlers ---
+        connectBtn.addEventListener('click', async () => {
+            const serverIp = serverIpInput.value.trim();
+            const apiKey = apiKeyInput.value.trim();
+
+            if (!serverIp || !apiKey) {
+                showToast('Please enter both Server IP and API Key.');
+                return;
+            }
+
+            setButtonLoading(connectBtn, true, 'Connecting...');
+
+            // Store credentials temporarily to test connection
+            localStorage.setItem('serverIp', serverIp);
+            localStorage.setItem('apiKey', apiKey);
+
+            // Test connection by fetching server info
+            const info = await apiCall('/api/info');
+
+            setButtonLoading(connectBtn, false, 'Connect');
+
+            if (info && info.success) {
+                showToast('Connected successfully!');
+                showManagerView();
+            } else {
+                // Clear credentials if connection failed
+                localStorage.removeItem('serverIp');
+                localStorage.removeItem('apiKey');
+            }
+        });
+
+        logoutBtn.addEventListener('click', () => {
+            logout();
+        });
+
+        function logout() {
+            localStorage.removeItem('serverIp');
+            localStorage.removeItem('apiKey');
+            serverInfoDiv.innerHTML = '';
+            userListDiv.innerHTML = '';
+            showToast('Disconnected.');
+            showLoginView();
+        }
+
+        // --- Auto-login on page load ---
+        function checkAutoLogin() {
+            const serverIp = localStorage.getItem('serverIp');
+            const apiKey = localStorage.getItem('apiKey');
+
+            if (serverIp && apiKey) {
+                serverIpInput.value = serverIp;
+                apiKeyInput.value = '********'; // Mask API key
+                showToast('Attempting to auto-connect...');
+
+                // Use a brief delay to allow the user to see the message
+                setTimeout(async () => {
+                    const info = await apiCall('/api/info');
+                    if (info && info.success) {
+                        showToast('Reconnected successfully!');
+                        showManagerView();
+                    } else {
+                        // Clear invalid credentials and force login
+                        localStorage.removeItem('serverIp');
+                        localStorage.removeItem('apiKey');
+                        apiKeyInput.value = '';
+                        showToast('Auto-connect failed. Please log in again.');
+                    }
+                }, 500);
+            }
+        }
+
+        checkAutoLogin();
+    });
+</script>
+
+</body>
+</html>
